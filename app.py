@@ -11,7 +11,8 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+# Update CORS configuration
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Initialize tokenizer
 tokenizer = tiktoken.get_encoding("cl100k_base")  # GPT-4 encoding
@@ -51,10 +52,12 @@ def upload_file():
         
         logger.debug(f"Successfully read file with {len(lines)} lines")
         
-        return jsonify({
+        response_data = {
             "filename": file.filename,
             "lines": lines
-        })
+        }
+        logger.debug(f"Sending response: {json.dumps(response_data)[:100]}...")  # Log first 100 chars of response
+        return jsonify(response_data)
     except Exception as e:
         logger.error(f"Error processing upload: {str(e)}")
         logger.error(traceback.format_exc())
@@ -193,4 +196,5 @@ def replace_text():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8000) 
+    port = int(os.environ.get('PORT', 8000))
+    app.run(host='0.0.0.0', port=port) 
