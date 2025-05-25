@@ -5,8 +5,6 @@ import traceback
 import logging
 import tiktoken
 import json
-import zipfile
-from io import BytesIO
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -109,16 +107,26 @@ def export_sections():
         sections = data['sections']
         lines = data['lines']
 
-        # Create a BytesIO object to store the zip file in memory
+        # Create a temporary directory for our files
+        import tempfile
+        import zipfile
+        from io import BytesIO
+
+        # Create a BytesIO object to store the zip file
         zip_buffer = BytesIO()
+        
+        # Create the zip file
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             # Export each section
             for i, section in enumerate(sections):
-                section_text = '\n'.join(lines[section['start']:section['end'] + 1])
-                section_filename = f'section_{i + 1}.txt'
-                zip_file.writestr(section_filename, section_text)
+                try:
+                    section_text = '\n'.join(lines[section['start']:section['end'] + 1])
+                    # Add the section text file to the zip
+                    zip_file.writestr(f'section_{i + 1}.txt', section_text)
+                except Exception as e:
+                    return jsonify({'error': f'Failed to process section {i + 1}: {str(e)}'}), 500
 
-            # Create metadata
+            # Create and add metadata file
             metadata = {
                 'sections': [
                     {
@@ -131,11 +139,8 @@ def export_sections():
                         'should_summarize': section.get('shouldSummarize', True)
                     }
                     for i, section in enumerate(sections)
-                ],
-                'total_sections': len(sections)
+                ]
             }
-            
-            # Add metadata to zip
             zip_file.writestr('metadata.json', json.dumps(metadata, indent=2))
 
         # Prepare the response
@@ -148,7 +153,8 @@ def export_sections():
         )
 
     except Exception as e:
-        app.logger.error(f"Export error: {str(e)}")
+        logger.error(f"Error in export_sections: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @app.route('/replace', methods=['POST'])
