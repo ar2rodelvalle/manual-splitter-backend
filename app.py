@@ -5,6 +5,8 @@ import traceback
 import logging
 import tiktoken
 import json
+import zipfile
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -107,41 +109,37 @@ def export_sections():
         sections = data['sections']
         lines = data['lines']
 
-        # Create a temporary directory for our files
-        import tempfile
-        import zipfile
-        from io import BytesIO
-
-        # Create a BytesIO object to store the zip file
+        # Create a BytesIO object to store the zip file in memory
         zip_buffer = BytesIO()
-        
-        # Create the zip file
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             # Export each section
             for i, section in enumerate(sections):
                 try:
                     section_text = '\n'.join(lines[section['start']:section['end'] + 1])
-                    # Add the section text file to the zip
-                    zip_file.writestr(f'section_{i + 1}.txt', section_text)
+                    section_filename = f'section_{i + 1}.txt'
+                    zip_file.writestr(section_filename, section_text)
                 except Exception as e:
-                    return jsonify({'error': f'Failed to process section {i + 1}: {str(e)}'}), 500
+                    return jsonify({'error': f'Failed to write section {i + 1}: {str(e)}'}), 500
 
-            # Create and add metadata file
-            metadata = {
-                'sections': [
-                    {
-                        'filename': f'section_{i + 1}.txt',
-                        'index': i + 1,
-                        'title': section.get('title', f'Section {i + 1}'),
-                        'start_line': section['start'],
-                        'end_line': section['end'],
-                        'token_count': section.get('tokenCount', 0),
-                        'should_summarize': section.get('shouldSummarize', True)
-                    }
-                    for i, section in enumerate(sections)
-                ]
-            }
-            zip_file.writestr('metadata.json', json.dumps(metadata, indent=2))
+            # Create metadata file
+            try:
+                metadata = {
+                    'sections': [
+                        {
+                            'filename': f'section_{i + 1}.txt',
+                            'index': i + 1,
+                            'start_line': section['start'],
+                            'end_line': section['end'],
+                            'token_count': section.get('tokenCount', 0),
+                            'should_summarize': section.get('shouldSummarize', True)
+                        }
+                        for i, section in enumerate(sections)
+                    ],
+                    'total_sections': len(sections)
+                }
+                zip_file.writestr('metadata.json', json.dumps(metadata, indent=2))
+            except Exception as e:
+                return jsonify({'error': f'Failed to write metadata: {str(e)}'}), 500
 
         # Prepare the response
         zip_buffer.seek(0)
@@ -153,8 +151,7 @@ def export_sections():
         )
 
     except Exception as e:
-        logger.error(f"Error in export_sections: {str(e)}")
-        logger.error(traceback.format_exc())
+        app.logger.error(f"Export error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/replace', methods=['POST'])
