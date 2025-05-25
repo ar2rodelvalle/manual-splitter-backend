@@ -1,10 +1,12 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 import os
 import traceback
 import logging
 import tiktoken
 import json
+import zipfile
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -106,39 +108,17 @@ def export_sections():
 
         sections = data['sections']
         lines = data['lines']
-        output_path = data.get('outputPath', 'output')  # Default to 'output' if not provided
 
-        # Validate sections data
-        for section in sections:
-            if not isinstance(section, dict):
-                return jsonify({'error': 'Invalid section format'}), 400
-            if 'start' not in section or 'end' not in section:
-                return jsonify({'error': 'Section missing start or end'}), 400
-            if not isinstance(section['start'], int) or not isinstance(section['end'], int):
-                return jsonify({'error': 'Section start and end must be integers'}), 400
-            if section['start'] < 0 or section['end'] >= len(lines):
-                return jsonify({'error': f'Section range {section["start"]}-{section["end"]} out of bounds'}), 400
-
-        # Create output directory if it doesn't exist
-        try:
-            os.makedirs(output_path, exist_ok=True)
-        except Exception as e:
-            return jsonify({'error': f'Failed to create output directory: {str(e)}'}), 500
-
-        # Export each section
-        exported_files = []
-        for i, section in enumerate(sections):
-            try:
+        # Create a BytesIO object to store the zip file in memory
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Export each section
+            for i, section in enumerate(sections):
                 section_text = '\n'.join(lines[section['start']:section['end'] + 1])
-                section_file = os.path.join(output_path, f'section_{i + 1}.txt')
-                with open(section_file, 'w', encoding='utf-8') as f:
-                    f.write(section_text)
-                exported_files.append(f'section_{i + 1}.txt')
-            except Exception as e:
-                return jsonify({'error': f'Failed to write section {i + 1}: {str(e)}'}), 500
+                section_filename = f'section_{i + 1}.txt'
+                zip_file.writestr(section_filename, section_text)
 
-        # Create metadata file
-        try:
+            # Create metadata
             metadata = {
                 'sections': [
                     {
@@ -154,19 +134,18 @@ def export_sections():
                 ],
                 'total_sections': len(sections)
             }
+            
+            # Add metadata to zip
+            zip_file.writestr('metadata.json', json.dumps(metadata, indent=2))
 
-            metadata_file = os.path.join(output_path, 'metadata.json')
-            with open(metadata_file, 'w', encoding='utf-8') as f:
-                json.dump(metadata, f, indent=2)
-            exported_files.append('metadata.json')
-        except Exception as e:
-            return jsonify({'error': f'Failed to write metadata: {str(e)}'}), 500
-
-        return jsonify({
-            'message': 'Export successful',
-            'outputPath': output_path,
-            'files': exported_files
-        })
+        # Prepare the response
+        zip_buffer.seek(0)
+        return send_file(
+            zip_buffer,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name='sections.zip'
+        )
 
     except Exception as e:
         app.logger.error(f"Export error: {str(e)}")
